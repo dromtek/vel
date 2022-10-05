@@ -11,12 +11,12 @@ Administration discord bot for Dromtek HQ server in Discord.
 - Install Nim and GCC.
 - Install openssl development library.
 - Make sure you had make discord application for your bot.
-- Open project folder as working directory then run `TOKEN=<your discord bot token> nimble run` to testing run the project.
+- Open project folder as working directory then run `DISCORD_TOKEN_BOT=<your discord bot token> nimble run` to testing run the project.
 - For production, build an binary executable then run it as a service on server. This approach to reduce needed of development material at production server.
 
 ## How to contribute?
 
-[CONTRIBUTING](./CONTRIBUTING)
+[CONTRIBUTING](./CONTRIBUTING.md)
 
 ## Maintainer
 
