@@ -4,6 +4,9 @@ import dimscord
     , options
     , os
     , sets
+    , repository/state_repository
+    , model/state
+    , std/db_sqlite
 
 proc getToken(): string =
     let token = os.getEnv("DISCORD_BOT_TOKEN")
@@ -11,7 +14,26 @@ proc getToken(): string =
         raise newException(OSError,"DISCORD_BOT_TOKEN not supplied") 
     return token
 
+proc establishDatabaseConnection(): DbConn =
+    try:
+        return open("mysqlite.db", "", "", "")
+    except:
+        raise newException(OSError,"fail connect to dtabase") 
+
 let discord = newDiscordClient(getToken())
+
+let db = establishDatabaseConnection()
+
+db.exec(sql"""
+CREATE TABLE IF NOT EXISTS states (
+    context CHAR
+    , key CHAR
+    , value CHAR
+    , guild_id CHAR
+)
+""")
+
+let stateRepo = newStateRepository(db)
 
 proc isServerOwner(m: Message): Future[bool] {.async.} =
     if m.member.isNone or m.guild_id.isNone: 
@@ -110,7 +132,54 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
         let msg = await discord.api.sendMessage(m.channel_id, text)
         await discord.api.addMessageReaction(msg.channel_id,msg.id,"✔️")
 
+        if not stateRepo.createState(stateData(
+            context: ctxMemberVerification
+            , key: "$1".format(MemberVerificationMessage)
+            , value: msg.id
+            , guildID: m.guild_id.get()
+        )):
+            echo "Failed to createState of MVRule"
+            await discord.api.deleteMessage(msg.channel_id,msg.id)
+            break
+        
+        # create role for allwed role
+        let roles = await discord.api.getGuildRoles(m.guild_id.get())
+        for role in roles:
+            if role.name == "@everyone":
+
+                let disabled : set[PermissionFlags] = {
+                    permViewChannel
+                    , permVoiceConnect
+                    , permMentionEveryone 
+                    , permManageGuild
+                }
+
+                let newPerm = PermObj(
+                    allowed: role.permissions + disabled
+                    , denied: role.permissions - disabled 
+                )
+
+                let role = await discord.api.createGuildRole(
+                    m.guild_id.get()
+                    , "Vel's Approved"
+                    , permissions = newPerm
+                )
+                
+                if not stateRepo.createState(stateData(
+                    context: ctxMemberVerification
+                    , key: "$1".format(MemberVerificationRole)
+                    , value: role.id
+                    , guildID: m.guild_id.get()
+                )):
+                    echo "Failed to createState of MVRole"
+                    break
+
+                
+                break
+
+        
         # set this to storage for reread.
+
 
         discard 
     else:
@@ -123,6 +192,7 @@ proc onReady(s: Shard, r: Ready) {.event(discord).} =
       name: "reality.",
       kind: atWatching
   ), status = "idle")
+
 
 
 waitFor discord.startSession()
