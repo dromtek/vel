@@ -24,7 +24,7 @@ proc establishDatabaseConnection(): DbConn =
 
 let discord = newDiscordClient(getToken())
 
-var mCache : MemCache = initTable[string, string]()
+var mCache = new MemCache
 
 let db : DbConn = establishDatabaseConnection()
 

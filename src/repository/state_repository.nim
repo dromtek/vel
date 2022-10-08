@@ -10,24 +10,24 @@ import
 type 
     stateRepository* = object
         sqlDb: DbConn
-        cacheDb: MemCache
+        cacheDb: ref MemCache
     stateRepository2* = object
         sqlDb: DbConn
         cacheDb: var MemCache
 
 proc findStateByStateQuery*(s: stateRepository,q: stateQuery) : Option[stateData] =
     let cacheKey = "$1|$2|$3".format(q.context,q.key,q.guildID)
-    # try:
-    #     return some  newStateData(
-    #         q.context
-    #         , q.key
-    #         , s.cacheDb[cacheKey]
-    #         , q.guildID
-    #     )
-    # except KeyError:
-    #     echo "no cache, continuing"
-    # finally:
-    #     echo "Error"
+    try:
+        return some  newStateData(
+            q.context
+            , q.key
+            , s.cacheDb[cacheKey]
+            , q.guildID
+        )
+    except KeyError:
+        echo "no cache, continuing"
+    finally:
+        echo "Error"
 
     let preparedStatement = s.sqlDb.prepare("SELECT context, key,value,guild_id FROM states WHERE context = ? and key = ? and guild_bot = ? LIMIT 1")
     preparedStatement.bindParams(
@@ -60,8 +60,8 @@ proc createState*(s: stateRepository,d: stateData) : bool =
     )
     let rowCount = s.sqlDb.execAffectedRows(preparedStatement) == 1
     if rowCount:
-        # let cacheKey = "$1|$2|$3".format(d.context,d.key,d.guildID)
-        # s.cacheDb.createCache(cacheKey,d.value)
+        let cacheKey = "$1|$2|$3".format(d.context,d.key,d.guildID)
+        s.cacheDb.createCache(cacheKey,d.value)
         return true
     return false
 
@@ -76,10 +76,10 @@ proc destroyStateByStateQuery*(s: stateRepository,q: stateQuery): bool =
         , q.key
         , q.guildID
     )
-    # let deleted = s.sqlDb.execAffectedRows(preparedStatement) > 0
-    # if deleted:
-    #     s.cacheDb.deleteCache("$1|$2|$3".format(q.context,q.key,q.guildID))
-    # return deleted
+    let deleted = s.sqlDb.execAffectedRows(preparedStatement) > 0
+    if deleted:
+        s.cacheDb.deleteCache("$1|$2|$3".format(q.context,q.key,q.guildID))
+    return deleted
 
-proc newStateRepo*(db: DbConn, cache: MemCache) : stateRepository =
+proc newStateRepo*(db: DbConn, cache: ref MemCache) : stateRepository =
     return stateRepository(sqlDb: db, cacheDb: cache) 

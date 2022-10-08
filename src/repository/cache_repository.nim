@@ -2,11 +2,11 @@ import std/tables
     , ../model/cache
 
 
-proc createCache*(c: var MemCache, key,value: string) =
+proc createCache*(c: ref MemCache, key,value: string) =
     c[key] = value
 
-proc deleteCache*(c: var MemCache,key: string) =
+proc deleteCache*(c: ref MemCache,key: string) =
     c.del(key)
 
-proc getCache*(c: var MemCache, key: string): string =
+proc getCache*(c: ref MemCache, key: string): string =
     return c[key]
