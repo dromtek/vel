@@ -145,6 +145,47 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 discard
 
         discard await discord.api.sendMessage(m.channel_id, role)
+    of "watashi":
+        # TODO: add validation about role that had privileged 
+        # and circuminstances with other feature
+        await discord.api.deleteMessage(m.channel_id,m.id)
+
+        var text = args[1..args.high].join(" ")
+        if text == "":
+            text = "Empty text."
+
+        let roles = await discord.api.getGuildRoles(m.guild_id.get())
+
+        for r in roles:
+            if not r.permissions.contains(permAdministrator):
+                if r.name.toLowerAscii() == text.toLowerAscii():
+                    await discord.api.addGuildMemberRole(
+                        m.guild_id.get()
+                        , m.author.id
+                        , r.id
+                        ,"Get by using watashi feature"
+                    )
+                    break
+    of "watashinot":
+        # TODO: add validation about role that had privileged 
+        # and circuminstances with other feature
+        await discord.api.deleteMessage(m.channel_id,m.id)
+
+        var text = args[1..args.high].join(" ")
+        if text == "":
+            text = "Empty text."
+
+        let roles = await discord.api.getGuildRoles(m.guild_id.get())
+
+        for r in roles:
+            if r.name.toLowerAscii() == text.toLowerAscii():
+                await discord.api.removeGuildMemberRole(
+                    m.guild_id.get()
+                    , m.author.id
+                    , r.id
+                    ,"Get by using watashi feature"
+                )
+                break
     of "authoritarianism":
         # check is sender are server owner
         let owner = await isServerOwner(m)
