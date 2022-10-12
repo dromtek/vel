@@ -11,3 +11,10 @@ bin           = @["vel"]
 # Dependencies
 
 requires "nim >= 1.3.4", "dimscord"
+
+when defined(nimdistros):
+  import distros
+  if detectOs(Debian) or detectOs(Ubuntu):
+    foreignDep "libsqlite3-dev"
+  else:
+    foreignDep "libsqlite3"
