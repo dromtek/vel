@@ -7,7 +7,7 @@ import dimscord
     , repository/state_repository
     , model/state
     , model/cache
-    , std/tables
+    , model/constant
     , std/db_sqlite
 
 proc getToken(): string =
@@ -62,16 +62,9 @@ proc blindfoldEverybodyRoleInServer(m: Message): Future[bool] {.async.} =
     for role in roles:
         if role.name == "@everyone":
 
-            let disabled : set[PermissionFlags] = {
-                permViewChannel
-                , permVoiceConnect
-                , permMentionEveryone 
-                , permManageGuild
-            }
-
             let newPerm = PermObj(
-                allowed: role.permissions - disabled
-                , denied: disabled 
+                allowed: role.permissions - constant.everyoneDeniedPermissions
+                , denied: constant.everyoneDeniedPermissions
             )
 
             discard await discord.api.editGuildRole(
@@ -90,36 +83,55 @@ proc blindfoldEverybodyRoleInServer(m: Message): Future[bool] {.async.} =
 
 # TODO: Listen to interaction react to specific message
 proc messageReactionAdd(s: Shard, m: Message, u: User, e: Emoji, exists: bool) {.event(discord).} =
-    # let msg  = i.message.get()
-    # let member = i.member.get()
 
-    echo m.id
-    # let state = stateRepo.findStateByStateQuery(stateQuery(
-    #     context: ctxMemberVerification
-    #     , key: "$1".format(MemberVerificationMessage)
-    #     , guildID: msg.guild_id.get()
-    # ))
+    # Below this is event specific to guild only
+    if m.guild_id.isNone : return
 
+    let state = stateRepo.findStateByStateQuery(stateQuery(
+        context: ctxMemberVerification
+        , key: "$1".format(MemberVerificationMessage)
+        , guildID: m.guild_id.get()
+    ))
+
+    if state.isSome and (m.id == state.get().value):
+        if e.name.get() == constant.checkListEmoji:
+            let repoId = stateRepo.findStateByStateQuery(
+                stateQuery(       
+                    context: ctxMemberVerification
+                    , key: "$1".format(MemberVerificationRole)
+                    , guildID: m.guild_id.get()
+                )
+            )
+            if repoId.isNone : break
+
+            await discord.api.addGuildMemberRole(
+                m.guild_id.get()
+                , u.id
+                , repoId.get().value
+                ,"Readed group rules")
+            break
+
+    
     # if state.isSome:
     #     if msg.id == state.get().value:
     #         if msg.
 
 proc messageCreate(s: Shard, m: Message) {.event(discord).} =
     let args = m.content.split(" ") # Splits a message.
-    if m.author.bot or not args[0].startsWith("$$"): return
+    if m.author.bot or not args[0].startsWith("%%"): return
     let command = args[0][2..args[0].high]
- 
+
     case command.toLowerAscii():
     of "test": # Sends a basic message.
+        # check is sender are server owner
+        let owner = await isServerOwner(m)
+        if not owner : return
         discard await discord.api.sendMessage(m.channel_id, "Success!")
-    of "shut_everyone":
-        let shut = await blindfoldEverybodyRoleInServer(m)
-        if shut:
-            discard await discord.api.sendMessage(m.channel_id, "Everybody has silenced!")
-        else:
-            discard await discord.api.sendMessage(m.channel_id, "Fail to controlling crowd!")
-
     of "roles":
+        # check is sender are server owner
+        let owner = await isServerOwner(m)
+        if not owner : return
+
         let roles = await discord.api.getGuildRoles(m.guild_id.get())
         var role = ""
         for r in roles:
@@ -133,7 +145,7 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 discard
 
         discard await discord.api.sendMessage(m.channel_id, role)
-    of "rule":
+    of "authoritarianism":
         # check is sender are server owner
         let owner = await isServerOwner(m)
         if not owner : return
@@ -146,9 +158,9 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
         if text == "":
             text = "Empty text."
         
-        # TODO: Catch any exception here to rollback message and role creation.
         var msgId,roleId : string
         try:
+            await discord.api.deleteMessage(m.channel_id,m.id)
             # silenced everyone
             let everyoneSilenced = await blindfoldEverybodyRoleInServer(m)
             if not everyoneSilenced:
@@ -156,52 +168,40 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 return
             
             # create role for allwed role
-            let roles = await discord.api.getGuildRoles(m.guild_id.get())
-            for role in roles:
-                if role.name == "@everyone":
+            let newPerm = PermObj(
+                allowed: constant.approvedMemberAllowedPermissions
+                , denied: constant.approvedMemberDeniedPermissions
+            )
 
-                    let disabled : set[PermissionFlags] = {
-                        permViewChannel
-                        , permVoiceConnect
-                        , permMentionEveryone 
-                        , permManageGuild
-                    }
+            # This should check the roleId already exist or not if not
+            # proceed to create the role
+            if stateRepo.findStateByStateQuery(stateQuery(
+                context: ctxMemberVerification
+                , key: "$1".format(MemberVerificationRole)
+                , guildID: m.guild_id.get()
+            )).isNone:
 
-                    let newPerm = PermObj(
-                        allowed: role.permissions + disabled
-                        , denied: role.permissions - disabled 
-                    )
-
-                    # This should check the roleId already exist or not if not
-                    # proceed to create the role
-                    if stateRepo.findStateByStateQuery(stateQuery(
-                        context: ctxMemberVerification
-                        , key: "$1".format(MemberVerificationRole)
-                        , guildID: m.guild_id.get()
-                    )).isSome:
-                        break
-
-                    let role = await discord.api.createGuildRole(
-                        m.guild_id.get()
-                        , "Vel's Approved"
-                        , permissions = newPerm
-                    )
-                    roleId = role.id
-                    
-                    if not stateRepo.createState(stateData(
-                        context: ctxMemberVerification
-                        , key: "$1".format(MemberVerificationRole)
-                        , value: role.id
-                        , guildID: m.guild_id.get()
-                    )):
-                        echo "Failed to createState of MVRole"
-                        break
-
+                # create role
+                let role = await discord.api.createGuildRole(
+                    m.guild_id.get()
+                    , "Vel's Approved"
+                    , permissions = newPerm
+                )
+                roleId = role.id
+                
+                if not stateRepo.createState(stateData(
+                    context: ctxMemberVerification
+                    , key: "$1".format(MemberVerificationRole)
+                    , value: role.id
+                    , guildID: m.guild_id.get()
+                )):
+                    echo "Failed to createState of MVRole"
                     break
             
              # Send message of aggrement
             let msg = await discord.api.sendMessage(m.channel_id, text)
-            await discord.api.addMessageReaction(msg.channel_id,msg.id,"✔️")
+            msgId = msg.id
+            await discord.api.addMessageReaction(msg.channel_id,msg.id, constant.checkListEmoji)
 
             discard stateRepo.destroyStateByStateQuery(stateQuery(
                 context: ctxMemberVerification
@@ -209,23 +209,24 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 , guildID: m.guild_id.get()
             ))
 
-            if not stateRepo.createState(stateData(
+            
+            discard stateRepo.createState(stateData(
                 context: ctxMemberVerification
                 , key: "$1".format(MemberVerificationMessage)
                 , value: msg.id
                 , guildID: m.guild_id.get()
-            )):
-                echo "Failed to createState of MVRule"
-                await discord.api.deleteMessage(msg.channel_id,msg.id)
-                break
-
-            msgId = msg.id
+            ))
         except:
             if msgId != "":
                 await discord.api.deleteMessage(m.channel_id,msgId)
             if roleId != "":
                 # do not delete roleId if config already exist
                 await discord.api.deleteGuildRole(m.guild_id.get(),roleId)
+            let
+                e = getCurrentException()
+                msg = getCurrentExceptionMsg()
+            echo "Got exception ", repr(e), " with message ", msg
+            discard await discord.api.sendMessage(m.channel_id, "Fail to done this order, Maybe I need more privilege or there a bug on my algorithm.")
         discard 
     else:
         discard
@@ -242,5 +243,12 @@ proc onReady(s: Shard, r: Ready) {.event(discord).} =
 # gateway_intents: is way to access some event that limited in default by discord
 # so use intents to open that limit.
 waitFor discord.startSession(
-    gateway_intents = {giGuildMessageReactions}
+    gateway_intents = {
+        giGuildMessageReactions
+        , giGuildMessages
+        , giGuildMembers
+        , giGuilds
+        , giDirectMessages
+        , giMessageContent
+    }
 )

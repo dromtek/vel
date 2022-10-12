@@ -29,24 +29,32 @@ proc findStateByStateQuery*(s: stateRepository,q: stateQuery) : Option[stateData
     finally:
         echo "Error"
 
-    let preparedStatement = s.sqlDb.prepare("SELECT context, key,value,guild_id FROM states WHERE context = ? and key = ? and guild_bot = ? LIMIT 1")
-    preparedStatement.bindParams(
-        "$1".format(q.context)
-        , q.key
-        , q.guildID
-    )
-    let dbRows = s.sqlDb.getAllRows(preparedStatement)
-    if dbRows.len <= 0:
-        return none(stateData)
-    else:
-        let data : stateData = newStateData(
-            parseEnum[StateContext](dbRows[0][0])
-            , dbRows[0][1]
-            , dbRows[0][2]
-            , dbRows[0][3]
+    try:
+        let preparedStatement = s.sqlDb.prepare("SELECT context, key,value,guild_id FROM states WHERE context = ? and key = ? and guild_id = ? LIMIT 1")
+        preparedStatement.bindParams(
+            "$1".format(q.context)
+            , q.key
+            , q.guildID
         )
 
-        return some data
+        let dbRows = s.sqlDb.getAllRows(preparedStatement)
+        if dbRows.len <= 0:
+            return none(stateData)
+        else:
+            let data : stateData = newStateData(
+                parseEnum[StateContext](dbRows[0][0])
+                , dbRows[0][1]
+                , dbRows[0][2]
+                , dbRows[0][3]
+            )
+
+            return some data
+    except:
+        let
+            e = getCurrentException()
+            msg = getCurrentExceptionMsg()
+        echo "Got exception ", repr(e), " with message ", msg
+        return none(stateData)
             
 proc createState*(s: stateRepository,d: stateData) : bool =
     let preparedStatement = s.sqlDb.prepare(
