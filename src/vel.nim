@@ -2,8 +2,7 @@ import dimscord
     , asyncdispatch
     , strutils
     , options
-    , os
-    , sets
+    , std/os
     , repository/state_repository
     , model/state
     , model/cache
@@ -49,6 +48,22 @@ proc isServerOwner(m: Message): Future[bool] {.async.} =
     
     return true
 
+proc isMemberApproved(m: Message): Future[bool] {.async.} =
+    if m.member.isNone: return false
+    let roleId = stateRepo.findStateByStateQuery(
+            stateQuery(
+                context: ctxMemberVerification
+                , key: MemberVerificationRole
+                , guildID: m.guild_id.get()
+            )
+        )
+    if roleId.isNone : return false
+
+    for role in m.member.get().roles:
+        if role == roleId.get().value:
+            return true
+    return false
+
 proc isGuildCommunityAndInRuleChannelByMessage(m: Message): Future[bool] {.async.} =
     # let guild = await discord.api.getGuild(m.guild_id.get())
     # if guild.features.contains("COMMUNITY"):
@@ -89,32 +104,49 @@ proc messageReactionAdd(s: Shard, m: Message, u: User, e: Emoji, exists: bool) {
 
     let state = stateRepo.findStateByStateQuery(stateQuery(
         context: ctxMemberVerification
-        , key: "$1".format(MemberVerificationMessage)
+        , key: MemberVerificationMessage
         , guildID: m.guild_id.get()
     ))
 
     if state.isSome and (m.id == state.get().value):
+        if e.name.isNone: 
+            return
         if e.name.get() == constant.checkListEmoji:
-            let repoId = stateRepo.findStateByStateQuery(
-                stateQuery(       
+            let roleId = stateRepo.findStateByStateQuery(
+                stateQuery(
                     context: ctxMemberVerification
-                    , key: "$1".format(MemberVerificationRole)
+                    , key: MemberVerificationRole
                     , guildID: m.guild_id.get()
                 )
             )
-            if repoId.isNone : break
+            if roleId.isNone : break
 
-            await discord.api.addGuildMemberRole(
-                m.guild_id.get()
+            let roles = await discord.api.getGuildRoles(m.guild_id.get())
+
+            for role in roles:
+                if role.id == roleId.get().value:
+                    if not role.permissions.contains(permAdministrator):
+                        await discord.api.addGuildMemberRole(
+                            m.guild_id.get()
+                            , u.id
+                            , roleId.get().value
+                            , "Readed group rules"
+                        )
+                        return
+            
+            await discord.api.deleteMessageReaction(
+                m.channel_id
+                , m.id
+                , e.name.get()
                 , u.id
-                , repoId.get().value
-                ,"Readed group rules")
-            break
-
-    
-    # if state.isSome:
-    #     if msg.id == state.get().value:
-    #         if msg.
+            )
+        else:
+            await discord.api.deleteMessageReaction(
+                m.channel_id
+                , m.id
+                , e.name.get()
+                , u.id
+            )
 
 proc messageCreate(s: Shard, m: Message) {.event(discord).} =
     let args = m.content.split(" ") # Splits a message.
@@ -145,6 +177,113 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 discard
 
         discard await discord.api.sendMessage(m.channel_id, role)
+    of "wataset":
+        # check is sender are server owner
+        let owner = await isServerOwner(m)
+        if not owner : return
+
+        await discord.api.deleteMessage(m.channel_id,m.id)
+
+        var text = args[1..args.high].join(" ")
+        if text == "":
+            discard await discord.api.sendMessage(m.channel_id, "Use separated as coma to allowed roles to assign, like dog,cat,duck")
+            return
+
+        discard stateRepo.destroyStateByStateQuery(stateQuery(
+            context: ctxWatashiFeature
+            , key: AllowedRoleList
+            , guildID: m.guild_id.get()
+        ))
+        if not stateRepo.createState(stateData(
+            context: ctxWatashiFeature
+            , key: AllowedRoleList
+            , value: text.toLowerAscii
+            , guildID: m.guild_id.get()
+        )):
+            discard await discord.api.sendMessage(m.channel_id, "Fail to store allowed role list.")
+            return
+        
+        discard await discord.api.sendMessage(m.channel_id, "Ok, %%watashi/not available now.")
+    of "watashi":
+        # TODO: add validation about role that had privileged 
+        # and circuminstances with other feature
+        await discord.api.deleteMessage(m.channel_id,m.id)
+        if not (await isMemberApproved(m)): return
+        
+        let roleApproved = stateRepo.findStateByStateQuery(stateQuery(
+            context: ctxMemberVerification
+            , key: MemberVerificationRole
+            , guildID: m.guild_id.get()
+        ))
+
+        let roleAllowed = stateRepo.findStateByStateQuery(stateQuery(
+            context: ctxWatashiFeature
+            , key: AllowedRoleList
+            , guildID: m.guild_id.get()
+        ))
+
+        if roleAllowed.isNone: return
+        echo "1"
+
+        let allowedRoles = roleAllowed.get().value.split(",")
+
+        var text = args[1..args.high].join(" ")
+        if text == "":
+            return
+        echo "2"
+
+        let roles = await discord.api.getGuildRoles(m.guild_id.get())
+
+        for r in roles:
+            if allowedRoles.contains(r.name.toLowerAscii): 
+                if not r.permissions.contains(permAdministrator):
+                    if r.name.toLowerAscii() == text.toLowerAscii():
+                        await discord.api.addGuildMemberRole(
+                            m.guild_id.get()
+                            , m.author.id
+                            , r.id
+                            ,"Get by using watashi feature"
+                        )
+                        break
+    of "watashinot":
+        # TODO: add validation about role that had privileged 
+        # and circuminstances with other feature
+        if not (await isMemberApproved(m)): return
+        await discord.api.deleteMessage(m.channel_id,m.id)
+
+        let roleApproved = stateRepo.findStateByStateQuery(stateQuery(
+                context: ctxMemberVerification
+                , key: MemberVerificationRole
+                , guildID: m.guild_id.get()
+        ))
+
+        var text = args[1..args.high].join(" ")
+        if text == "":
+            return
+
+        let roleAllowed = stateRepo.findStateByStateQuery(stateQuery(
+            context: ctxWatashiFeature
+            , key: AllowedRoleList
+            , guildID: m.guild_id.get()
+        ))
+
+        if roleAllowed.isNone: return
+
+        let allowedRoles = roleAllowed.get().value.split(",")
+
+        let roles = await discord.api.getGuildRoles(m.guild_id.get())
+
+        for r in roles:
+            if allowedRoles.contains(r.name.toLowerAscii): 
+                if not r.permissions.contains(permAdministrator):
+                    if r.name.toLowerAscii() == text.toLowerAscii():
+                        await discord.api.removeGuildMemberRole(
+                            m.guild_id.get()
+                            , m.author.id
+                            , r.id
+                            ,"remove role by using watashinot feature"
+                        )
+                        break
     of "authoritarianism":
         # check is sender are server owner
         let owner = await isServerOwner(m)
@@ -156,7 +295,7 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
 
         var text = args[1..args.high].join(" ")
         if text == "":
-            text = "Empty text."
+            text = "React to this message meaning you agree with you rules and will unlocked."
         
         var msgId,roleId : string
         try:
@@ -168,18 +307,18 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 return
             
             # create role for allwed role
-            let newPerm = PermObj(
-                allowed: constant.approvedMemberAllowedPermissions
-                , denied: constant.approvedMemberDeniedPermissions
-            )
 
             # This should check the roleId already exist or not if not
             # proceed to create the role
             if stateRepo.findStateByStateQuery(stateQuery(
                 context: ctxMemberVerification
-                , key: "$1".format(MemberVerificationRole)
+                , key: MemberVerificationRole
                 , guildID: m.guild_id.get()
             )).isNone:
+
+                let newPerm = PermObj(
+                    allowed: constant.approvedMemberAllowedPermissions
+                )
 
                 # create role
                 let role = await discord.api.createGuildRole(
@@ -191,7 +330,7 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
                 
                 if not stateRepo.createState(stateData(
                     context: ctxMemberVerification
-                    , key: "$1".format(MemberVerificationRole)
+                    , key: MemberVerificationRole
                     , value: role.id
                     , guildID: m.guild_id.get()
                 )):
@@ -205,17 +344,19 @@ proc messageCreate(s: Shard, m: Message) {.event(discord).} =
 
             discard stateRepo.destroyStateByStateQuery(stateQuery(
                 context: ctxMemberVerification
-                , key: "$1".format(MemberVerificationMessage)
+                , key: MemberVerificationMessage
                 , guildID: m.guild_id.get()
             ))
 
             
             discard stateRepo.createState(stateData(
                 context: ctxMemberVerification
-                , key: "$1".format(MemberVerificationMessage)
+                , key: MemberVerificationMessage
                 , value: msg.id
                 , guildID: m.guild_id.get()
             ))
+
+            discard await discord.api.sendMessage(m.channel_id, "[DELETE AFTER READ] The Vel's Approved role is created but with buggy permission, before you proceed this rearrange permission for Vel's Approved role. If the role contain admin grant, no member will given the role.")
         except:
             if msgId != "":
                 await discord.api.deleteMessage(m.channel_id,msgId)

@@ -6,20 +6,22 @@ import
 type 
     StateContext* {. pure .} = enum 
         ctxMemberVerification = "ctxMemberVerification"
+        ctxWatashiFeature = "ctxWatashiFeature"
 
     StateLabel* {. pure .} = enum
         MemberVerificationRole = "memberVerificationRole"
         MemberVerificationMessage = "memberVerificationMessage"
+        AllowedRoleList = "allowedRoleList"
     
     stateData* = object 
         context*: StateContext
-        key*: string
+        key*: StateLabel
         value*: string
         guildID*: string
 
     stateQuery* = object 
         context*: StateContext
-        key*: string
+        key*: StateLabel
         guildID*: string
 
     IStateRepository* = concept s
@@ -28,7 +30,7 @@ type
         s.createState(d: stateData) is bool
         s.destroyStateByStateQuery(q: stateQuery) is bool
 
-proc newStateData*(context: StateContext, key,value,guildID: string) : stateData = 
+proc newStateData*(context: StateContext, key: StateLabel,value,guildID: string) : stateData = 
     result.context = context
     result.key = key
     result.value = value
