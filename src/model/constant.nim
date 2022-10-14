@@ -13,6 +13,8 @@ let everyoneDeniedPermissions* : set[PermissionFlags] = {
 let approvedMemberAllowedPermissions* : set[PermissionFlags] = {
     permViewChannel
     , permVoiceConnect
+    , permAddReactions
+    , permSendMessages
 }
 
 let approvedMemberDeniedPermissions* : set[PermissionFlags] = {

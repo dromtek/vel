@@ -33,7 +33,7 @@ proc findStateByStateQuery*(s: stateRepository,q: stateQuery) : Option[stateData
         let preparedStatement = s.sqlDb.prepare("SELECT context, key,value,guild_id FROM states WHERE context = ? and key = ? and guild_id = ? LIMIT 1")
         preparedStatement.bindParams(
             "$1".format(q.context)
-            , q.key
+            , "$1".format(q.key)
             , q.guildID
         )
 
@@ -43,7 +43,7 @@ proc findStateByStateQuery*(s: stateRepository,q: stateQuery) : Option[stateData
         else:
             let data : stateData = newStateData(
                 parseEnum[StateContext](dbRows[0][0])
-                , dbRows[0][1]
+                , parseEnum[StateLabel](dbRows[0][1])
                 , dbRows[0][2]
                 , dbRows[0][3]
             )
@@ -62,7 +62,7 @@ proc createState*(s: stateRepository,d: stateData) : bool =
     )
     preparedStatement.bindParams(
         "$1".format(d.context)
-        , d.key
+        , "$1".format(d.key)
         , d.value
         , d.guildID
     )
@@ -81,7 +81,7 @@ proc destroyStateByStateQuery*(s: stateRepository,q: stateQuery): bool =
     )
     preparedStatement.bindParams(
         "$1".format(q.context)
-        , q.key
+        , "$1".format(q.key)
         , q.guildID
     )
     let deleted = s.sqlDb.execAffectedRows(preparedStatement) > 0
