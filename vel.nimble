@@ -10,7 +10,7 @@ bin           = @["vel"]
 
 # Dependencies
 
-requires "nim >= 1.3.4", "dimscord"
+requires "nim >= 1.3.4", "https://github.com/krisppurg/dimscord#head"
 
 when defined(nimdistros):
   import distros

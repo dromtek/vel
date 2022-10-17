@@ -16,8 +16,11 @@ proc getToken(): string =
     return token
 
 proc establishDatabaseConnection(): DbConn =
+    let dbAddress = os.getEnv("DB_URL")
+    if dbAddress == "":
+        raise newException(OSError,"DISCORD_BOT_TOKEN not supplied") 
     try:
-        return open("mysqlite.db", "", "", "")
+        return open(dbAddress, "", "", "")
     except:
         raise newException(OSError,"fail connect to dtabase") 
 
