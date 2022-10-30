@@ -36,4 +36,4 @@ See the [fly.toml](./fly.toml) for details.
 
 ## Maintainer
 
-- Elq "Lort Kegelaban" Rett ([@frederett](https://github.com/frederett))
+-"Lort Kegelaban" ([@frederett](https://github.com/frederett))
